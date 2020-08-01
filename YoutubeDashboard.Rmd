@@ -1,0 +1,192 @@
+---
+title: "YouTube Dashboard"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: scroll
+---
+```{r setup, include=FALSE}
+# flex dashboard
+library(flexdashboard)
+
+# for data wrangling
+library(tidyverse)
+library(lubridate)
+
+
+# for data visualization
+library(ggplot2)
+library(scales)
+library(ggthemes)
+library(plotly)
+library(echarts4r)
+```
+
+```{r warning = F, message = F}
+# Read our dataset in
+videos <- read_csv("data_input/USvideos.csv")
+
+# EDA
+videos$trending_date <- ydm(videos$trending_date)
+videos$publish_time <- ymd_hms(videos$publish_time)
+videos$category_id <- sapply(X = as.character(videos$category_id), # Data
+                           FUN = switch, # Function
+                           
+                           # Glossary atau kamus
+                           "1" = "Film and Animation",
+                           "2" = "Autos and Vehicles", 
+                           "10" = "Music", 
+                           "15" = "Pets and Animals", 
+                           "17" = "Sports",
+                           "19" = "Travel and Events", 
+                           "20" = "Gaming", 
+                           "22" = "People and Blogs", 
+                           "23" = "Comedy",
+                           "24" = "Entertainment", 
+                           "25" = "News and Politics",
+                           "26" = "Howto and Style", 
+                           "27" = "Education",
+                           "28" = "Science and Technology", 
+                           "29" = "Nonprofit and Activism",
+                           "43" = "Shows")
+# videos[  , c("title","channel_title","category_id")] <- lapply(videos[  , c("title","channel_title","category_id")], as.factor)
+videos <- videos %>% 
+  mutate(title = as.factor(title),
+         channel_title = as.factor(channel_title),
+         category_id = as.factor(category_id))
+videos[  , c("views", "likes", "dislikes", "comment_count")] <- lapply(videos[  , c("views", "likes", "dislikes", "comment_count")], as.numeric)
+
+# to order the latest trending date
+videos <- videos[ order(videos$trending_date, decreasing = T), ]
+
+# to take one title per latest trending date
+videos <- videos[ match(unique(videos$title), table = videos$title), ]
+
+videos$likesratio <- videos$likes/videos$views
+videos$dislikesratio <- videos$dislikes/videos$views
+videos$commentratio <- videos$comment_count/videos$views
+
+music <- videos[videos$category_id == "Music",]
+popularmusic <- aggregate(trending_date ~ channel_title, music, length)
+popularmusic <- popularmusic[order(popularmusic$trending_date, decreasing=T), ]
+```
+
+```{r warning = F, message = F}
+# Creates theme
+white_theme <- theme(
+  panel.background = element_rect(fill="white"),
+  plot.background = element_rect(fill="white"),
+  panel.grid.minor.x = element_blank(),
+  panel.grid.major.x = element_blank(),
+  panel.grid.minor.y = element_blank(),
+  text = element_text(color="black"),
+  axis.text = element_text(color="black"),
+  strip.background =element_rect(fill="snow3"),
+  strip.text = element_text(colour = 'black')
+  )
+```
+
+
+Column {data-width = 60%}
+-----------------------------------------------------------------------
+<h2>Learning By Building for Data Visualization</h2>
+Hi, welcome to my LBB for Data Visualization Page!This project is created as an extra task for Algoritma's Student for portofolio. In this task, I'll try to visualize about [YouTube Trending Videos](https://www.kaggle.com/datasnaek/youtube-new?select=USvideos.csv) which the I found from `kaggle.com`
+
+### Music YouTube Traffic
+```{r warning = F, message = F}
+videos %>% 
+  filter(category_id == "Music") %>% 
+  group_by(trending_date) %>% 
+  summarise(likesratio = mean(likesratio),
+            dislikesratio = mean(dislikesratio),
+            commentratio = mean(commentratio)) %>% 
+  gather(category, value,2:4 ) %>% 
+  mutate(trending_date = as.POSIXct.Date(trending_date)) %>% 
+  ungroup() %>% 
+  group_by(category) %>% 
+  e_charts(x = trending_date) %>%
+  e_line(serie = value) %>% 
+  e_tooltip(trigger = "axis") %>% 
+  e_title(text = "Music YouTube Traffic") %>% 
+  e_theme("roma") %>% 
+  e_legend(show = F) %>% 
+  e_x_axis(name = "Trending Date") %>% 
+  e_y_axis(name = "Total") %>% 
+  e_hide_grid_lines()
+```
+
+
+> From the chart, we can conclude that most of the videos have `likesratio` more than `dislikesratio` and `commentratio`.
+The highest `likesratio` was on **28 December 2017** and **22 April 2018** while for `dislikesratio` was on **24 December 2017** and **19 May 2018** for each year
+
+### Music YouTube Data Frame
+```{r warning = F, message = F}
+DT::datatable(videos %>% 
+                filter(category_id == "Music") %>% 
+                select(channel_title, views, likes, dislikes, likesratio, dislikesratio), 
+              options = list(
+                pageLength = 6
+))
+```
+
+
+
+Column {data-width = 40%}
+-----------------------------------------------------------------------
+
+### Top 15 Music Youtuber
+```{r warning = F, message = F}
+videos %>% 
+  filter(category_id == "Music") %>% 
+  group_by(channel_title, category_id) %>%
+  summarise(likesratio = round(mean(likesratio),2)) %>% 
+  ungroup() %>%  
+  arrange(desc(likesratio)) %>% 
+  head(15) %>% 
+  ggplot(aes(y = reorder(channel_title, likesratio), 
+                       x = likesratio,
+                       fill = likesratio,
+                       color = category_id)) +
+  geom_col() +
+  geom_text(aes(label = percent(x = likesratio, accuracy = 0.1)), 
+            hjust = 0, size = 4, nudge_x = 0.01) +
+  labs(title = "Top 15 Music Youtuber", 
+       subtitle = "Based on Likes per View",
+       caption = "Source: Youtube",
+       x = "Likes per View",
+       y = "Channel Title",
+       fill = NULL) +
+  scale_fill_gradient(low = "orange", high = "red", labels = percent_format(accuracy = 1) ) +
+  scale_x_continuous(
+    limits = c(0, 0.21), labels = percent_format(), 
+                     breaks = seq(0, 0.2, 0.05)
+  ) +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 16, colour = "red")) +
+  white_theme
+```
+
+> Most favorit Music Channel was **Vogue** with **17%** and the least favorit was **LouisTomlinsonVEVO** and **Darren Chris** with **11%** of `likesratio`
+
+
+### Likes vs Dislikes in Trending Music Videos
+```{r warning = F, message = F}
+ggplotly(
+  ggplot(music[music$channel_title %in% popularmusic$channel_title,],
+         aes(x = likesratio, y = dislikesratio,
+             text  = paste(channel_title))) +
+    geom_point(aes(size=views, col=channel_title), alpha=0.6) +
+    labs(title = "Likes vs Dislikes in Trending Music Videos",
+         x = "Likes Ratio",
+         y = "Dislikes Ratio")+
+    theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+    white_theme, tooltip = "text") %>% 
+  config(displayModeBar = F)
+```
+
+
+> The `channel_title` with most `dislikesratio` was **MatthewSantoro** while **Shaw Mendes** had the most `likesratio`
+
+
+
